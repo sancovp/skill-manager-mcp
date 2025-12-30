@@ -1,0 +1,14 @@
+LICENSE
+README.md
+pyproject.toml
+src/skill_manager/__init__.py
+src/skill_manager/core.py
+src/skill_manager/models.py
+src/skill_manager/server.py
+src/skill_manager/treeshell_functions.py
+src/skill_manager_mcp.egg-info/PKG-INFO
+src/skill_manager_mcp.egg-info/SOURCES.txt
+src/skill_manager_mcp.egg-info/dependency_links.txt
+src/skill_manager_mcp.egg-info/entry_points.txt
+src/skill_manager_mcp.egg-info/requires.txt
+src/skill_manager_mcp.egg-info/top_level.txt
