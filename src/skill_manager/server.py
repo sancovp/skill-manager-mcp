@@ -8,7 +8,36 @@ from .core import SkillManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("skill-manager")
+SERVER_DESCRIPTION = """
+Skill Manager - Three-tier skill architecture for compound intelligence.
+
+## What is a Skill?
+A skill is a PACKAGE (directory) containing:
+- SKILL.md: Main content with instructions/context (frontmatter + body)
+- scripts/: Executable scripts the agent can run
+- templates/: Template files for generation
+- reference.md: Additional reference material
+
+Skills are domain-organized knowledge that agents READ and FOLLOW.
+The content tells you WHAT to know; flights tell you HOW to execute.
+
+## Three Tiers
+1. Global Catalog: All available skills, searchable via RAG
+2. Equipped State: Skills currently loaded in working memory
+3. Skillsets: Named groups of skills for batch loading
+
+## Workflow
+- get_skill(name): Read one skill's full content + see its resources
+- equip(name): Mark skill as equipped (add to working memory)
+- get_equipped_content(): Get all equipped skills' content at once
+- search_skills(query): Find skills by semantic search
+
+## Personas
+Personas bundle: frame (cognitive priming) + skillset + MCP set + identity.
+Equipping a persona loads its frame and skills automatically.
+"""
+
+mcp = FastMCP("skill-manager", description=SERVER_DESCRIPTION)
 manager = SkillManager()
 
 
@@ -61,13 +90,33 @@ def list_by_domain(domain: str) -> str:
 
 @mcp.tool()
 def get_skill(name: str) -> str:
-    """Get full content of a skill."""
-    skill = manager.get_skill(name)
-    if not skill:
+    """Get full content of a skill package.
+
+    Returns SKILL.md content plus lists available resources (scripts/, templates/, reference.md).
+    Use this to read a skill and see what executable resources it provides.
+    """
+    result = manager.get_skill(name)
+    if not result:
         return f"Skill '{name}' not found"
 
+    skill = result["skill"]
+    resources = result["resources"]
     path = f"{skill.domain}::{skill.subdomain}" if skill.subdomain else skill.domain
-    return f"# {skill.name}\nDomain: {path}\n\n{skill.content}"
+
+    lines = [f"# {skill.name}", f"Domain: {path}", f"Path: {result['path']}", "", skill.content]
+
+    # Show available resources
+    lines.append("\n## Resources")
+    if resources["scripts"]:
+        lines.append(f"scripts/: {', '.join(resources['scripts'])}")
+    if resources["templates"]:
+        lines.append(f"templates/: {', '.join(resources['templates'])}")
+    if resources["reference"]:
+        lines.append(f"reference.md: {resources['reference']}")
+    if not any([resources["scripts"], resources["templates"], resources["reference"]]):
+        lines.append("(no additional resources)")
+
+    return "\n".join(lines)
 
 
 @mcp.tool()

@@ -22,7 +22,8 @@ def list_skills() -> str:
     lines = []
     for s in skills:
         path = f"{s['domain']}::{s['subdomain']}" if s['subdomain'] else s['domain']
-        lines.append(f"{s['name']}: {path} - {s['description']}")
+        cat = f" [{s['category']}]" if s.get('category') else ""
+        lines.append(f"{s['name']}: {path}{cat} - {s['description']}")
     return "\n".join(lines)
 
 
@@ -69,44 +70,32 @@ def _format_resources(resources: dict) -> list[str]:
 
 
 def get_skill(name: str) -> str:
-    """Get full content of a skill."""
+    """Get full content of a skill package.
+
+    Returns SKILL.md content plus available resources (scripts/, templates/, reference.md).
+    """
     result = manager.get_skill(name)
     if not result:
         return f"Skill '{name}' not found"
 
     skill = result["skill"]
     path = f"{skill.domain}::{skill.subdomain}" if skill.subdomain else skill.domain
+    cat_line = f"Category: {skill.category}" if skill.category else "Category: (not set)"
 
-    lines = [f"# {skill.name}", f"Domain: {path}", f"Path: {result['path']}", "", skill.content, "", "## Resources"]
+    lines = [f"# {skill.name}", f"Domain: {path}", cat_line, f"Path: {result['path']}", "", skill.content, "", "## Resources"]
     lines.extend(_format_resources(result["resources"]))
     return "\n".join(lines)
 
 
-def create_skill(name: str, domain: str, content: str, description: str, subdomain: str = "") -> str:
-    """Create a skill in global catalog.
-
-    Args:
-        name: Skill name (kebab-case)
-        domain: Primary domain
-        content: Skill content/instructions
-        description: Brief description
-        subdomain: Optional subdomain
-    """
-    result = manager.create_skill(name, domain, content, description, subdomain or None)
+def create_skill(name: str, domain: str, content: str, description: str,
+                 subdomain: str = "", category: str = "") -> str:
+    """Create a skill. category: understand | preflight | single_turn_process"""
+    result = manager.create_skill(name, domain, content, description,
+                                   subdomain or None, category or None)
     skill = result["skill"]
     path = f"{skill.domain}::{skill.subdomain}" if skill.subdomain else skill.domain
-
-    lines = [
-        f"Created skill '{skill.name}' in {path}",
-        f"Path: {result['path']}",
-        "",
-        "Structure:",
-        "- SKILL.md (main content)",
-        "- scripts/ (add executable scripts here)",
-        "- templates/ (add reusable templates here)",
-        "- reference.md (add extended documentation here)"
-    ]
-    return "\n".join(lines)
+    cat_info = f" [{skill.category}]" if skill.category else ""
+    return f"Created '{skill.name}' in {path}{cat_info}\nPath: {result['path']}"
 
 
 def search_skills(query: str, n_results: int = 5) -> str:

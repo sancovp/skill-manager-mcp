@@ -1,7 +1,11 @@
 """Pydantic models for skill manager."""
 
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel
+
+
+# Skill categories determine how the agent should use the skill
+SkillCategory = Literal["understand", "preflight", "single_turn_process"]
 
 
 class Skill(BaseModel):
@@ -11,6 +15,7 @@ class Skill(BaseModel):
     subdomain: Optional[str] = None
     description: str
     content: str
+    category: Optional[SkillCategory] = None  # understand | preflight | single_turn_process
 
 
 class Skillset(BaseModel):

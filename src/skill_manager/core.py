@@ -55,11 +55,11 @@ class SkillManager:
 
     # === Skill CRUD ===
 
-    def _parse_skill_md(self, content: str) -> tuple[str, str, str]:
-        """Parse SKILL.md frontmatter. Returns (name, description, body)."""
+    def _parse_skill_md(self, content: str) -> tuple[str, str, str, str]:
+        """Parse SKILL.md frontmatter. Returns (name, description, category, body)."""
         lines = content.strip().split("\n")
         if lines[0] != "---":
-            return "", "", content
+            return "", "", "", content
 
         end_idx = None
         for i, line in enumerate(lines[1:], 1):
@@ -68,24 +68,34 @@ class SkillManager:
                 break
 
         if not end_idx:
-            return "", "", content
+            return "", "", "", content
 
         frontmatter = "\n".join(lines[1:end_idx])
         body = "\n".join(lines[end_idx + 1:]).strip()
 
-        name, description = "", ""
+        name, description, category = "", "", ""
         for line in frontmatter.split("\n"):
             if line.startswith("name:"):
                 name = line.split(":", 1)[1].strip()
             elif line.startswith("description:"):
                 description = line.split(":", 1)[1].strip()
+            elif line.startswith("category:"):
+                category = line.split(":", 1)[1].strip()
 
-        return name, description, body
+        return name, description, category, body
 
     def create_skill(self, name: str, domain: str, content: str,
-                     description: str, subdomain: Optional[str] = None) -> dict:
-        """Create a new skill in global catalog with full resource structure."""
-        logger.info(f"Creating skill: {name} in {domain}::{subdomain or ''}")
+                     description: str, subdomain: Optional[str] = None,
+                     category: Optional[str] = None) -> dict:
+        """Create a new skill in global catalog with full resource structure.
+
+        Args:
+            category: One of 'understand', 'preflight', 'single_turn_process'
+                - understand: pure context, no flight (read and absorb)
+                - preflight: primes with concepts, points to fly domain or specific flights
+                - single_turn_process: context + immediate action, no flight needed
+        """
+        logger.info(f"Creating skill: {name} in {domain}::{subdomain or ''} (category={category})")
 
         skill_dir = self._skill_path(name)
         skill_dir.mkdir(parents=True, exist_ok=True)
@@ -96,10 +106,11 @@ class SkillManager:
         scripts_dir.mkdir(exist_ok=True)
         templates_dir.mkdir(exist_ok=True)
 
-        # Write SKILL.md
+        # Write SKILL.md with category in frontmatter
+        category_line = f"\ncategory: {category}" if category else ""
         skill_md = f"""---
 name: {name}
-description: {description}
+description: {description}{category_line}
 ---
 
 # {name.replace('-', ' ').replace('_', ' ').title()}
@@ -116,15 +127,16 @@ description: {description}
             "name": name,
             "domain": domain,
             "subdomain": subdomain,
-            "description": description
+            "description": description,
+            "category": category
         }
         self._metadata_path(name).write_text(json.dumps(metadata, indent=2))
 
         # Index in ChromaDB
-        self._index_skill(name, domain, subdomain, description, content)
+        self._index_skill(name, domain, subdomain, description, content, category)
 
         skill = Skill(name=name, domain=domain, subdomain=subdomain,
-                      content=content, description=description)
+                      content=content, description=description, category=category)
 
         return {
             "skill": skill,
@@ -138,14 +150,15 @@ description: {description}
         }
 
     def _index_skill(self, name: str, domain: str, subdomain: Optional[str],
-                     description: str, content: str):
+                     description: str, content: str, category: Optional[str] = None):
         """Add skill to RAG index."""
         doc_id = f"skill:{name}"
-        search_text = f"{domain} {subdomain or ''} {name} {description} {content}"
+        search_text = f"{domain} {subdomain or ''} {name} {description} {category or ''} {content}"
         self.collection.upsert(
             ids=[doc_id],
             documents=[search_text],
-            metadatas=[{"name": name, "domain": domain, "subdomain": subdomain or "", "type": "skill"}]
+            metadatas=[{"name": name, "domain": domain, "subdomain": subdomain or "",
+                        "type": "skill", "category": category or ""}]
         )
 
     def _scan_resources(self, skill_dir: Path) -> dict:
@@ -178,7 +191,7 @@ description: {description}
             return None
 
         content = skill_md_path.read_text()
-        parsed_name, description, body = self._parse_skill_md(content)
+        parsed_name, description, category, body = self._parse_skill_md(content)
 
         domain, subdomain = "unknown", None
         if self._metadata_path(name).exists():
@@ -186,9 +199,11 @@ description: {description}
             domain = meta.get("domain", "unknown")
             subdomain = meta.get("subdomain")
             description = meta.get("description", description)
+            category = meta.get("category", category) or None
 
         skill = Skill(name=parsed_name or name, domain=domain,
-                      subdomain=subdomain, content=body, description=description)
+                      subdomain=subdomain, content=body, description=description,
+                      category=category)
 
         skill_dir = self._skill_path(name)
         resources = self._scan_resources(skill_dir)
@@ -211,7 +226,8 @@ description: {description}
                         "name": skill.name,
                         "domain": skill.domain,
                         "subdomain": skill.subdomain,
-                        "description": skill.description
+                        "description": skill.description,
+                        "category": skill.category
                     })
         return skills
 
