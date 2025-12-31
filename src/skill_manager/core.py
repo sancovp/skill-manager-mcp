@@ -324,9 +324,15 @@ description: {description}{category_line}
 
     # === RAG search ===
 
-    def search_skills(self, query: str, n_results: int = 5) -> list[dict]:
-        """Search skills and skillsets using RAG."""
-        results = self.collection.query(query_texts=[query], n_results=n_results)
+    def search_skills(self, query: str, n_results: int = 5,
+                      category: Optional[str] = None) -> list[dict]:
+        """Search skills and skillsets using RAG, optionally filtered by category."""
+        where_filter = {"category": category} if category else None
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            where=where_filter
+        )
 
         matches = []
         if results["ids"] and results["ids"][0]:
@@ -338,6 +344,7 @@ description: {description}{category_line}
                     "domain": metadata.get("domain", "unknown"),
                     "subdomain": metadata.get("subdomain", ""),
                     "type": metadata.get("type", "skill"),
+                    "category": metadata.get("category", ""),
                     "score": 1 - distance
                 })
         return matches

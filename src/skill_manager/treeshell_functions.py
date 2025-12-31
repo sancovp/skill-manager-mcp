@@ -98,16 +98,17 @@ def create_skill(name: str, domain: str, content: str, description: str,
     return f"Created '{skill.name}' in {path}{cat_info}\nPath: {result['path']}"
 
 
-def search_skills(query: str, n_results: int = 5) -> str:
-    """Search skills and skillsets using RAG."""
-    matches = manager.search_skills(query, n_results)
+def search_skills(query: str, n_results: int = 5, category: str = "") -> str:
+    """Search skills using RAG, optionally filtered by category (understand|preflight|single_turn_process)."""
+    matches = manager.search_skills(query, n_results, category or None)
     if not matches:
         return "No matches"
 
     lines = []
     for m in matches:
         path = f"{m['domain']}::{m['subdomain']}" if m['subdomain'] else m['domain']
-        lines.append(f"[{m['score']:.2f}] {m['name']} ({m['type']}) - {path}")
+        cat = f" [{m['category']}]" if m.get('category') else ""
+        lines.append(f"[{m['score']:.2f}] {m['name']} ({m['type']}){cat} - {path}")
     return "\n".join(lines)
 
 
