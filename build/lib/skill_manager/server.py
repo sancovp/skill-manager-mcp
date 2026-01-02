@@ -1,18 +1,49 @@
-"""Skill Manager functions for TreeShell crystallization."""
+"""Skill Manager MCP Server - three-tier architecture: global/equipped/sets."""
 
 import logging
-from typing import List, Dict, Any, Optional
+from mcp.server.fastmcp import FastMCP
+
 from .core import SkillManager
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global manager - instantiated at import time
+SERVER_DESCRIPTION = """
+Skill Manager - Three-tier skill architecture for compound intelligence.
+
+## What is a Skill?
+A skill is a PACKAGE (directory) containing:
+- SKILL.md: Main content with instructions/context (frontmatter + body)
+- scripts/: Executable scripts the agent can run
+- templates/: Template files for generation
+- reference.md: Additional reference material
+
+Skills are domain-organized knowledge that agents READ and FOLLOW.
+The content tells you WHAT to know; flights tell you HOW to execute.
+
+## Three Tiers
+1. Global Catalog: All available skills, searchable via RAG
+2. Equipped State: Skills currently loaded in working memory
+3. Skillsets: Named groups of skills for batch loading
+
+## Workflow
+- get_skill(name): Read one skill's full content + see its resources
+- equip(name): Mark skill as equipped (add to working memory)
+- get_equipped_content(): Get all equipped skills' content at once
+- search_skills(query): Find skills by semantic search
+
+## Personas
+Personas bundle: frame (cognitive priming) + skillset + MCP set + identity.
+Equipping a persona loads its frame and skills automatically.
+"""
+
+mcp = FastMCP("skill-manager", description=SERVER_DESCRIPTION)
 manager = SkillManager()
-logger.info("SkillManager singleton initialized for TreeShell")
 
 
 # === Global catalog ===
 
+@mcp.tool()
 def list_skills() -> str:
     """List all skills in global catalog."""
     skills = manager.list_skills()
@@ -22,11 +53,11 @@ def list_skills() -> str:
     lines = []
     for s in skills:
         path = f"{s['domain']}::{s['subdomain']}" if s['subdomain'] else s['domain']
-        cat = f" [{s['category']}]" if s.get('category') else ""
-        lines.append(f"{s['name']}: {path}{cat} - {s['description']}")
+        lines.append(f"{s['name']}: {path} - {s['description']}")
     return "\n".join(lines)
 
 
+@mcp.tool()
 def list_domains() -> str:
     """List all available skill domains."""
     domains = manager.list_domains()
@@ -35,6 +66,7 @@ def list_domains() -> str:
     return "Domains: " + ", ".join(domains)
 
 
+@mcp.tool()
 def list_by_domain(domain: str) -> str:
     """List all skills and skillsets in a domain."""
     result = manager.list_by_domain(domain)
@@ -56,111 +88,70 @@ def list_by_domain(domain: str) -> str:
     return "\n".join(lines)
 
 
-def _format_resources(resources: dict) -> list[str]:
-    """Format resource info as lines."""
-    lines = []
-    scripts = resources.get("scripts", [])
-    templates = resources.get("templates", [])
-    ref = resources.get("reference")
-
-    lines.append(f"scripts/: {', '.join(scripts)}" if scripts else "scripts/: (empty)")
-    lines.append(f"templates/: {', '.join(templates)}" if templates else "templates/: (empty)")
-    lines.append(f"reference.md: {ref}" if ref else "reference.md: (not created)")
-    return lines
-
-
+@mcp.tool()
 def get_skill(name: str) -> str:
     """Get full content of a skill package.
 
-    Returns SKILL.md content plus available resources (scripts/, templates/, reference.md).
+    Returns SKILL.md content plus lists available resources (scripts/, templates/, reference.md).
+    Use this to read a skill and see what executable resources it provides.
     """
     result = manager.get_skill(name)
     if not result:
         return f"Skill '{name}' not found"
 
     skill = result["skill"]
+    resources = result["resources"]
     path = f"{skill.domain}::{skill.subdomain}" if skill.subdomain else skill.domain
-    cat_line = f"Category: {skill.category}" if skill.category else "Category: (not set)"
 
-    lines = [f"# {skill.name}", f"Domain: {path}", cat_line, f"Path: {result['path']}", "", skill.content, "", "## Resources"]
-    lines.extend(_format_resources(result["resources"]))
+    lines = [f"# {skill.name}", f"Domain: {path}", f"Path: {result['path']}", "", skill.content]
+
+    # Show available resources
+    lines.append("\n## Resources")
+    if resources["scripts"]:
+        lines.append(f"scripts/: {', '.join(resources['scripts'])}")
+    if resources["templates"]:
+        lines.append(f"templates/: {', '.join(resources['templates'])}")
+    if resources["reference"]:
+        lines.append(f"reference.md: {resources['reference']}")
+    if not any([resources["scripts"], resources["templates"], resources["reference"]]):
+        lines.append("(no additional resources)")
+
     return "\n".join(lines)
 
 
-def create_skill(name: str = "", domain: str = "", content: str = "", description: str = "",
-                 subdomain: str = "", category: str = "") -> str:
-    """Create a skill properly using the guided flight config process.
+@mcp.tool()
+def create_skill(name: str, domain: str, content: str, description: str, subdomain: str = "") -> str:
+    """Create a skill in global catalog.
 
-    If called with arguments, creates the skill directly (for programmatic use).
-    If called without arguments, returns guidance to use the make-skill preflight.
+    Args:
+        name: Skill name (kebab-case)
+        domain: Primary domain
+        content: Skill content/instructions
+        description: Brief description
+        subdomain: Optional subdomain
     """
-    # If no name provided, return guidance to use the flight config
-    if not name:
-        return """# Creating a Skill Properly
-
-To create a properly structured skill, use the guided process:
-
-## Step 1: Equip the preflight
-```
-equip("make-skill")
-```
-
-## Step 2: Follow the preflight instructions
-The preflight will tell you to:
-1. Equip `understand-skills` for domain knowledge (optional)
-2. Start the `create_skill_flight_config` flight
-
-## Step 3: Start the flight
-```
-start_waypoint_journey(
-  config_path="create_skill_flight_config",
-  starlog_path="/your/project/path"
-)
-```
-
-The flight walks you through 10 steps to create a proper skill with:
-- SKILL.md (brief, points to reference.md)
-- reference.md (TOC with "when to use" for each resource)
-- resources/ (actual content - can be massive for understand skills)
-- scripts/ and templates/ as needed
-
-## Why use the flight?
-Skills are packages, not just text files. The flight ensures you:
-- Understand what skills are before creating
-- Choose the right type (understand, preflight, single_turn_process)
-- Create proper structure with all required files
-- Don't leave empty placeholder files
-
----
-To skip this and create directly (not recommended), call with all arguments:
-create_skill(name="...", domain="...", content="...", description="...", category="...")
-"""
-
-    # If arguments provided, create directly (programmatic use)
-    result = manager.create_skill(name, domain, content, description,
-                                   subdomain or None, category or None)
-    skill = result["skill"]
+    skill = manager.create_skill(name, domain, content, description, subdomain or None)
     path = f"{skill.domain}::{skill.subdomain}" if skill.subdomain else skill.domain
-    cat_info = f" [{skill.category}]" if skill.category else ""
-    return f"Created '{skill.name}' in {path}{cat_info}\nPath: {result['path']}"
+    return f"Created skill '{skill.name}' in {path}"
 
 
-def search_skills(query: str, n_results: int = 5, category: str = "") -> str:
-    """Search skills using RAG, optionally filtered by category (understand|preflight|single_turn_process)."""
-    matches = manager.search_skills(query, n_results, category or None)
+@mcp.tool()
+def search_skills(query: str, n_results: int = 5) -> str:
+    """Search skills and skillsets using RAG."""
+    matches = manager.search_skills(query, n_results)
     if not matches:
         return "No matches"
 
     lines = []
     for m in matches:
         path = f"{m['domain']}::{m['subdomain']}" if m['subdomain'] else m['domain']
-        cat = f" [{m['category']}]" if m.get('category') else ""
-        lines.append(f"[{m['score']:.2f}] {m['name']} ({m['type']}){cat} - {path}")
+        lines.append(f"[{m['score']:.2f}] {m['name']} ({m['type']}) - {path}")
     return "\n".join(lines)
 
 
 # === Equipped state ===
 
+@mcp.tool()
 def list_equipped() -> str:
     """List currently equipped skills. Call this to see what knowledge is loaded."""
     equipped = manager.list_equipped()
@@ -174,11 +165,13 @@ def list_equipped() -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
 def get_equipped_content() -> str:
     """Get full content of all equipped skills."""
     return manager.get_equipped_content()
 
 
+@mcp.tool()
 def equip(name: str) -> str:
     """Equip a skill or skillset. Loads it into working memory.
 
@@ -194,6 +187,7 @@ def equip(name: str) -> str:
     return f"Equipped skill '{name}' ({result['domain']})"
 
 
+@mcp.tool()
 def unequip(name: str) -> str:
     """Unequip a skill."""
     result = manager.unequip(name)
@@ -202,6 +196,7 @@ def unequip(name: str) -> str:
     return f"Unequipped '{name}'"
 
 
+@mcp.tool()
 def unequip_all() -> str:
     """Clear all equipped skills."""
     result = manager.unequip_all()
@@ -210,6 +205,7 @@ def unequip_all() -> str:
 
 # === Skillsets ===
 
+@mcp.tool()
 def list_skillsets() -> str:
     """List all skillsets."""
     skillsets = manager.list_skillsets()
@@ -223,6 +219,7 @@ def list_skillsets() -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
 def create_skillset(name: str, domain: str, description: str, skills: str, subdomain: str = "") -> str:
     """Create a skillset with domain.
 
@@ -239,6 +236,7 @@ def create_skillset(name: str, domain: str, description: str, skills: str, subdo
     return f"Created skillset '{ss.name}' in {path} with {len(ss.skills)} skills"
 
 
+@mcp.tool()
 def add_to_skillset(skillset_name: str, skill_name: str) -> str:
     """Add a skill to a skillset."""
     result = manager.add_to_skillset(skillset_name, skill_name)
@@ -249,6 +247,7 @@ def add_to_skillset(skillset_name: str, skill_name: str) -> str:
 
 # === SkillLog matching ===
 
+@mcp.tool()
 def match_skilllog(prediction: str) -> str:
     """Match a SkillLog prediction against catalog.
 
@@ -274,6 +273,7 @@ def match_skilllog(prediction: str) -> str:
 
 # === Personas ===
 
+@mcp.tool()
 def list_personas() -> str:
     """List all personas."""
     personas = manager.list_personas()
@@ -291,6 +291,7 @@ def list_personas() -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
 def create_persona(name: str, domain: str, description: str, frame: str,
                    mcp_set: str = "", skillset: str = "",
                    carton_identity: str = "", subdomain: str = "") -> str:
@@ -317,6 +318,7 @@ def create_persona(name: str, domain: str, description: str, frame: str,
     return f"Created persona '{p.name}' in {path}"
 
 
+@mcp.tool()
 def equip_persona(name: str) -> str:
     """Equip a persona - loads frame, attempts skillset, reports MCP set needs.
 
@@ -345,6 +347,7 @@ def equip_persona(name: str) -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
 def get_active_persona() -> str:
     """Get the currently active persona."""
     result = manager.get_active_persona()
@@ -353,9 +356,20 @@ def get_active_persona() -> str:
     return f"Active: {result['name']} ({result['domain']})"
 
 
+@mcp.tool()
 def deactivate_persona() -> str:
     """Deactivate current persona and unequip all skills."""
     result = manager.deactivate_persona()
     if "status" in result:
         return result["status"]
     return f"Deactivated '{result['deactivated']}', skills unequipped"
+
+
+def main():
+    """Run the MCP server."""
+    logger.info("Starting Skill Manager MCP")
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
