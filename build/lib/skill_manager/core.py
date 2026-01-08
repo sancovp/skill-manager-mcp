@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 import chromadb
@@ -11,6 +12,9 @@ from chromadb.config import Settings
 from .models import Skill, Skillset, Persona
 
 logger = logging.getLogger(__name__)
+
+# Claude Code's native skills directory - we mirror equipped skills here
+CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
 
 
 class SkillManager:
@@ -284,6 +288,26 @@ description: |
         skillsets = [ss for ss in self.list_skillsets() if ss["domain"] == domain]
         return {"domain": domain, "skills": skills, "skillsets": skillsets}
 
+    # === Claude skills directory mirroring ===
+
+    def _mirror_to_claude(self, name: str):
+        """Copy skill to Claude's native skills dir for hot-reload pickup."""
+        src = self._skill_path(name)
+        dst = CLAUDE_SKILLS_DIR / name
+        if src.exists():
+            CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            logger.info(f"Mirrored skill to Claude: {dst}")
+
+    def _remove_from_claude(self, name: str):
+        """Remove skill from Claude's native skills dir."""
+        dst = CLAUDE_SKILLS_DIR / name
+        if dst.exists():
+            shutil.rmtree(dst)
+            logger.info(f"Removed skill from Claude: {dst}")
+
     # === Equipped state ===
 
     def equip(self, name: str) -> dict:
@@ -298,6 +322,7 @@ description: |
         if result:
             skill = result["skill"]
             self.equipped[name] = skill
+            self._mirror_to_claude(name)
             logger.info(f"Equipped skill: {name}")
             return {"equipped": name, "type": "skill", "domain": skill.domain}
 
@@ -314,6 +339,7 @@ description: |
             result = self.get_skill(skill_name)
             if result:
                 self.equipped[skill_name] = result["skill"]
+                self._mirror_to_claude(skill_name)
                 equipped_names.append(skill_name)
 
         logger.info(f"Equipped skillset: {name} ({len(equipped_names)} skills)")
@@ -328,12 +354,15 @@ description: |
         """Unequip a skill."""
         if name in self.equipped:
             del self.equipped[name]
+            self._remove_from_claude(name)
             return {"unequipped": name}
         return {"error": f"'{name}' not equipped"}
 
     def unequip_all(self) -> dict:
         """Clear all equipped skills."""
         count = len(self.equipped)
+        for name in list(self.equipped.keys()):
+            self._remove_from_claude(name)
         self.equipped.clear()
         return {"unequipped_count": count}
 
