@@ -22,8 +22,8 @@ class GnosysSkillMetadata(BaseModel):
     subdomain: Optional[str] = None
     category: Optional[SkillCategory] = None
     # Typed description fields - concatenated into Claude's description
-    what: str  # What this skill does
-    when: str  # When to use it (trigger condition)
+    what: Optional[str] = None  # What this skill does
+    when: Optional[str] = None  # When to use it (trigger condition)
     # how is the skill body for preflight, not stored here
 
 
@@ -38,8 +38,8 @@ class Skill(BaseModel):
     domain: str
     subdomain: Optional[str] = None
     category: Optional[SkillCategory] = None
-    what: str
-    when: str
+    what: Optional[str] = None
+    when: Optional[str] = None
     # Skill body content
     content: str
 
