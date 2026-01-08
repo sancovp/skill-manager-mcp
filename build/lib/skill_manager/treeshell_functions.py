@@ -88,55 +88,31 @@ def get_skill(name: str) -> str:
 
 
 def create_skill(name: str = "", domain: str = "", content: str = "", description: str = "",
-                 subdomain: str = "", category: str = "") -> str:
-    """Create a skill properly using the guided flight config process.
+                 subdomain: str = "", category: str = "", from_flight: bool = False) -> str:
+    """Create a skill. Must be called from create_skill_flight_config.
 
-    If called with arguments, creates the skill directly (for programmatic use).
-    If called without arguments, returns guidance to use the make-skill preflight.
+    Args:
+        from_flight: Must be True (set by flight config). Direct calls will be rejected.
     """
-    # If no name provided, return guidance to use the flight config
+    # Gate: must come from flight
+    if not from_flight:
+        return """# This tool can only be used from create_skill_flight_config
+
+Run: equip('make-skill') then follow the preflight to start the flight.
+
+The flight walks you through creating a properly structured skill with:
+- Correct SKILL.md format (WHAT/WHEN/HOW sections)
+- reference.md table of contents
+- resources/ directory structure
+- Proper category selection (understand/preflight/single_turn_process)
+
+Direct usage is not supported - skills created without the flight will be malformed."""
+
+    # From flight - actually create
     if not name:
-        return """# Creating a Skill Properly
+        return "ERROR: name is required (should be provided by flight)"
 
-To create a properly structured skill, use the guided process:
-
-## Step 1: Equip the preflight
-```
-equip("make-skill")
-```
-
-## Step 2: Follow the preflight instructions
-The preflight will tell you to:
-1. Equip `understand-skills` for domain knowledge (optional)
-2. Start the `create_skill_flight_config` flight
-
-## Step 3: Start the flight
-```
-start_waypoint_journey(
-  config_path="create_skill_flight_config",
-  starlog_path="/your/project/path"
-)
-```
-
-The flight walks you through 10 steps to create a proper skill with:
-- SKILL.md (brief, points to reference.md)
-- reference.md (TOC with "when to use" for each resource)
-- resources/ (actual content - can be massive for understand skills)
-- scripts/ and templates/ as needed
-
-## Why use the flight?
-Skills are packages, not just text files. The flight ensures you:
-- Understand what skills are before creating
-- Choose the right type (understand, preflight, single_turn_process)
-- Create proper structure with all required files
-- Don't leave empty placeholder files
-
----
-To skip this and create directly (not recommended), call with all arguments:
-create_skill(name="...", domain="...", content="...", description="...", category="...")
-"""
-
-    # If arguments provided, create directly (programmatic use)
+    # Create the skill
     result = manager.create_skill(name, domain, content, description,
                                    subdomain or None, category or None)
     skill = result["skill"]

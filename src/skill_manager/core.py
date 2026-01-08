@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import chromadb
@@ -31,6 +32,10 @@ class SkillManager:
         self.skillsets_file = self.skills_dir / "_skillsets.json"
         self.personas_file = self.skills_dir / "_personas.json"
 
+        # Defaults and quarantine
+        self.defaults_file = self.skills_dir / "_defaults.json"
+        self.quarantine_dir = self.skills_dir / "_quarantine"
+
         # Equipped state (in-memory for session)
         self.equipped: dict[str, Skill] = {}
         self.active_persona: Optional[Persona] = None
@@ -45,6 +50,9 @@ class SkillManager:
             name="skills",
             metadata={"hnsw:space": "cosine"}
         )
+
+        # Sync on startup
+        self.sync_on_startup()
 
     # === File paths ===
 
@@ -307,6 +315,133 @@ description: |
         if dst.exists():
             shutil.rmtree(dst)
             logger.info(f"Removed skill from Claude: {dst}")
+
+    # === Defaults and sync ===
+
+    def _load_defaults(self) -> list[str]:
+        """Load default skill names from config."""
+        if not self.defaults_file.exists():
+            return []
+        try:
+            data = json.loads(self.defaults_file.read_text())
+            return data.get("defaults", [])
+        except (json.JSONDecodeError, KeyError):
+            return []
+
+    def _quarantine_skill(self, name: str, source: str, reason: str = "duplicate"):
+        """Move skill to quarantine with metadata."""
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        quarantine_path = self.quarantine_dir / f"{name}_{timestamp}"
+
+        # Determine source path
+        if source == "claude":
+            src = CLAUDE_SKILLS_DIR / name
+        else:
+            src = self.skills_dir / name
+
+        if not src.exists():
+            logger.warning(f"Cannot quarantine {name}: source {src} does not exist")
+            return
+
+        # Copy to quarantine
+        shutil.copytree(src, quarantine_path)
+
+        # Write metadata
+        metadata = {
+            "source": source,
+            "original_name": name,
+            "reason": reason,
+            "timestamp": timestamp,
+            "original_path": str(src)
+        }
+        (quarantine_path / "_quarantine_metadata.json").write_text(json.dumps(metadata, indent=2))
+        logger.info(f"Quarantined skill: {name} from {source} -> {quarantine_path}")
+
+    def list_quarantine(self) -> list[dict]:
+        """List all quarantined skills."""
+        if not self.quarantine_dir.exists():
+            return []
+
+        quarantined = []
+        for p in self.quarantine_dir.iterdir():
+            if p.is_dir():
+                meta_path = p / "_quarantine_metadata.json"
+                if meta_path.exists():
+                    try:
+                        metadata = json.loads(meta_path.read_text())
+                        quarantined.append({
+                            "path": str(p),
+                            "metadata": metadata
+                        })
+                    except json.JSONDecodeError:
+                        quarantined.append({
+                            "path": str(p),
+                            "metadata": {"error": "invalid metadata"}
+                        })
+        return quarantined
+
+    def sync_on_startup(self):
+        """Sync claude/skills to heaven, then clean claude to defaults only.
+
+        1. Any skill in claude but not heaven -> copy to heaven (new from plugin)
+        2. Any skill in claude AND heaven but not in defaults -> quarantine claude version
+        3. Clean claude to defaults only
+        4. Ensure defaults are present in claude
+        """
+        CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Get current state
+        claude_skills = set(
+            d.name for d in CLAUDE_SKILLS_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith("_")
+        ) if CLAUDE_SKILLS_DIR.exists() else set()
+
+        heaven_skills = set(
+            d.name for d in self.skills_dir.iterdir()
+            if d.is_dir() and not d.name.startswith("_")
+        )
+
+        defaults = set(self._load_defaults())
+
+        logger.info(f"Sync on startup: claude={len(claude_skills)}, heaven={len(heaven_skills)}, defaults={len(defaults)}")
+
+        # 1. Sync: claude -> heaven (new skills from plugins)
+        for skill in claude_skills:
+            if skill not in heaven_skills:
+                # New skill from plugin - copy to heaven
+                src = CLAUDE_SKILLS_DIR / skill
+                dst = self.skills_dir / skill
+                shutil.copytree(src, dst)
+                logger.info(f"Synced new skill from claude to heaven: {skill}")
+                # Index it
+                self._try_index_skill(skill)
+            elif skill not in defaults:
+                # Duplicate! Quarantine the claude version
+                self._quarantine_skill(skill, source="claude", reason="duplicate")
+
+        # 2. Clean claude to defaults only
+        for skill in claude_skills:
+            if skill not in defaults:
+                skill_path = CLAUDE_SKILLS_DIR / skill
+                if skill_path.exists():
+                    shutil.rmtree(skill_path)
+                    logger.info(f"Removed non-default skill from claude: {skill}")
+
+        # 3. Ensure defaults are present in claude
+        for skill in defaults:
+            if skill in heaven_skills:
+                self._mirror_to_claude(skill)
+
+    def _try_index_skill(self, name: str):
+        """Try to index a skill that was synced from claude."""
+        result = self.get_skill(name)
+        if result:
+            skill = result["skill"]
+            self._index_skill(
+                name, skill.domain, skill.subdomain,
+                skill.description, skill.content, skill.category
+            )
 
     # === Equipped state ===
 

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: skill-manager-mcp
-Version: 0.1.5
+Version: 0.1.7
 Summary: Self-steering skill management MCP with RAG-based prediction matching
 Author-email: Isaac Wostrel-Rubin <isaac@sanctuary.systems>
 License-Expression: LicenseRef-GPBL-1.0
